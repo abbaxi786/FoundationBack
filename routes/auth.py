@@ -1,5 +1,7 @@
 from pydantic import BaseModel
-from fastapi import APIRouter
+from fastapi import APIRouter,HTTPException
+from db.mongo_connection import database
+from lib.hash import HasPassword,VerifyPassword
 
 class SignUp(BaseModel):
     username: str
@@ -13,14 +15,75 @@ class LogIn(BaseModel):
 authRouter = APIRouter()
 
 @authRouter.post('/api/sign_up')
-def SignUp(data:SignUp):
-    return{
-        "message": f"{data.username} has created account with email {data.email}"
-    }
-    pass
+async def SignUp(data:SignUp):
+
+    try:
+        existingUser = await database.User.find_one({
+            "email": data.email
+        })
+
+        if existingUser:
+            raise HTTPException(
+                status_code=409,
+                detail="Email already registered"
+            )
+
+        hashPassword = HasPassword(data.password)
+
+        user = {
+            "username": data.username,
+            "password": hashPassword,
+            "email": data.email 
+        }
+
+        return {
+            "success": True,
+            "Message": "The account has been created"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "Message": str(e)
+            }
+        )
+
+
+
+    
 
 @authRouter.post('/api/log_in')
-def LogIn(data:LogIn):
-    return{
-        "message": f"The user with {data.email} email had log in !!!"
+async def LogIn(data:LogIn):
+    user = await database.User.find_one({
+        "email": data.email
+    })
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    if not VerifyPassword(
+        data.password,
+        user["password_hash"]
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    return {
+        "message": "Login successful"
+    }
+
+@authRouter.get("/db-test")
+async def database_test():
+
+    result = await database.command("ping")
+
+    return {
+        "message": "MongoDB connected",
+        "result": result
     }
